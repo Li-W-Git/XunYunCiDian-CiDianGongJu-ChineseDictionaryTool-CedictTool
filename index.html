@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>中文词典查词工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', Arial, sans-serif; background: #f5f5f5; padding: 10px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 15px; text-align: center; font-size: 24px; }
+        .section { margin-bottom: 15px; padding: 12px; background: #f9f9f9; border-radius: 5px; border-left: 4px solid #007bff; }
+        .section-title { font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px; }
+        label { cursor: pointer; user-select: none; font-size: 13px; }
+        input[type="checkbox"] { cursor: pointer; }
+        input[type="text"], input[type="number"] { padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; }
+        button { padding: 6px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 3px; font-size: 12px; }
+        button:hover { background: #0056b3; }
+        button.delete { background: #dc3545; }
+        button.delete:hover { background: #c82333; }
+        .results { margin-top: 15px; padding: 12px; background: white; border: 1px solid #ddd; border-radius: 5px; max-height: 400px; overflow-y: auto; }
+        .result-item { padding: 6px; border-bottom: 1px solid #eee; line-height: 1.5; font-size: 13px; }
+        .result-item:last-child { border-bottom: none; }
+        .stats { color: #666; font-size: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd; }
+        .status { color: #666; font-size: 12px; }
+        .status.loading { color: #ff9800; }
+        .status.success { color: #4caf50; }
+        .status.error { color: #f44336; }
+        .char-filter-row { display: flex; gap: 15px; align-items: flex-start; flex-wrap: wrap; }
+        .char-filter-item { border: 1px solid #ddd; padding: 10px; border-radius: 4px; flex: 1; min-width: 280px; background: #fafafa; }
+        .char-filter-item h5 { margin-bottom: 8px; color: #333; font-size: 13px; }
+        .char-filter-item .option-group { margin-bottom: 8px; }
+        .char-filter-item .option-group strong { display: block; font-size: 11px; margin-bottom: 4px; color: #555; }
+        .char-filter-item .option-list { display: flex; flex-wrap: wrap; gap: 6px; }
+        .char-filter-item .option-list label { display: flex; align-items: center; gap: 3px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>中文词典查词工具</h1>
+        
+        <div class="section">
+            <label>词典文件路径:</label>
+            <input type="text" id="dictPath" value="" style="width: 65%;">
+            <button onclick="loadDict()">加载词典</button>
+            <span id="status" class="status"></span>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">按字数筛选（手动输入，留空不筛选）</div>
+            <input type="number" id="charCount" placeholder="输入字数（如2表示2字词汇）" min="1" max="20" style="width: 200px;">
+        </div>
+        
+        <div class="section">
+            <div class="section-title">按每个字的拼音特征筛选</div>
+            <div id="charFiltersContainer"></div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">按特定字筛选</div>
+            <div style="margin-bottom: 8px;">
+                <label>包含的字/词（用逗号分隔）:</label><br>
+                <input type="text" id="includeChars" placeholder="例如：查询,词" style="width: 100%; margin-top: 5px;">
+            </div>
+            <div>
+                <label>不包含的字/词（用逗号分隔）:</label><br>
+                <input type="text" id="excludeChars" placeholder="例如：查询,词" style="width: 100%; margin-top: 5px;">
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">显示选项</div>
+            <label style="display: flex; align-items: center; gap: 6px; margin-right: 15px;">
+                <input type="checkbox" id="showTraditional" checked>
+                显示繁体
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; margin-right: 15px;">
+                <input type="checkbox" id="showSimplified" checked>
+                显示简体
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="showDefinitions" checked>
+                显示注解
+            </label>
+        </div>
+        
+        <button onclick="search()" style="width: 100%; padding: 12px; font-size: 14px; background: #4caf50;">查询</button>
+        
+        <div class="results" id="results"></div>
+    </div>
+    
+    <script>
+        const INITIALS = ['b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'zh', 'ch', 'sh', 'r', 'z', 'c', 's', 'y', 'w', 'zhi', 'chi', 'shi', 'ri', 'zi', 'ci', 'si', 'yi', 'wu', 'yu', 'ye', 'yue', 'yuan', 'yin', 'yun', 'ying'];
+        const FINALS = ['a', 'o', 'e', 'i', 'u', 'v', 'ai', 'ei', 'ui', 'ao', 'ou', 'iu', 'ie', 've', 'er', 'an', 'en', 'in', 'un', 'vn', 'ang', 'eng', 'ing', 'ong'];
+        const TONES = {1: '1声', 2: '2声', 3: '3声', 4: '4声', 5: '轻声'};
+        
+        function setStatus(msg, type='') {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = 'status ' + type;
+        }
+        
+        function loadDict() {
+            const path = document.getElementById('dictPath').value;
+            setStatus('加载中...', 'loading');
+            
+            fetch('/api/load?path=' + encodeURIComponent(path))
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        setStatus(`已加载 ${data.count} 个词条`, 'success');
+                        initCharFilters();
+                    } else {
+                        setStatus('加载失败: ' + data.error, 'error');
+                    }
+                })
+                .catch(e => setStatus('错误: ' + e.message, 'error'));
+        }
+        
+        function initCharFilters() {
+            const container = document.getElementById('charFiltersContainer');
+            container.innerHTML = '';
+            
+            const help = document.createElement('p');
+            help.style.fontSize = '12px';
+            help.style.color = '#666';
+            help.style.marginBottom = '10px';
+            help.textContent = '说明：为每个字设置筛选条件，留空表示不筛选。可为一个字设置多个声调/声母/韵母（或的关系）。';
+            container.appendChild(help);
+            
+            const filtersDiv = document.createElement('div');
+            filtersDiv.className = 'char-filter-row';
+            filtersDiv.id = 'charFilterRows';
+            container.appendChild(filtersDiv);
+            
+            addCharFilter();
+            
+            const addBtn = document.createElement('button');
+            addBtn.textContent = '添加下一字筛选';
+            addBtn.onclick = addCharFilter;
+            addBtn.style.marginTop = '10px';
+            container.appendChild(addBtn);
+        }
+        
+        function addCharFilter() {
+            const filtersDiv = document.getElementById('charFilterRows');
+            const position = filtersDiv.children.length + 1;
+            
+            const item = document.createElement('div');
+            item.className = 'char-filter-item';
+            item.id = 'charFilter_' + position;
+            
+            let html = `<h5>第${position}个字</h5>`;
+            
+            // 声调
+            html += `<div class="option-group">
+                <strong>声调：</strong>
+                <div class="option-list">`;
+            for (const [tone, label] of Object.entries(TONES)) {
+                html += `<label><input type="checkbox" class="char_${position}_tone" value="${tone}"> ${label}</label>`;
+            }
+            html += `</div></div>`;
+            
+            // 声母
+            html += `<div class="option-group">
+                <strong>声母/整体认读音节：</strong>
+                <div class="option-list">`;
+            for (const initial of INITIALS) {
+                html += `<label><input type="checkbox" class="char_${position}_initial" value="${initial}"> ${initial}</label>`;
+            }
+            html += `</div></div>`;
+            
+            // 韵母
+            html += `<div class="option-group">
+                <strong>韵母：</strong>
+                <div class="option-list">`;
+            for (const final of FINALS) {
+                html += `<label><input type="checkbox" class="char_${position}_final" value="${final}"> ${final}</label>`;
+            }
+            html += `</div></div>`;
+            
+            html += `<button onclick="removeCharFilter(${position})" class="delete" style="margin-top: 8px;">删除此字筛选</button>`;
+            
+            item.innerHTML = html;
+            filtersDiv.appendChild(item);
+        }
+        
+        function removeCharFilter(position) {
+            const item = document.getElementById('charFilter_' + position);
+            if (item) item.remove();
+        }
+        
+        function search() {
+            const charCount = document.getElementById('charCount').value;
+            const includeChars = document.getElementById('includeChars').value;
+            const excludeChars = document.getElementById('excludeChars').value;
+            
+            const params = new URLSearchParams();
+            if (charCount) params.append('char_count', charCount);
+            if (includeChars) params.append('include_chars', includeChars);
+            if (excludeChars) params.append('exclude_chars', excludeChars);
+            
+            // 收集按字的筛选条件
+            const filtersDiv = document.getElementById('charFilterRows');
+            for (let i = 1; i <= filtersDiv.children.length; i++) {
+                const tones = Array.from(document.querySelectorAll(`.char_${i}_tone:checked`)).map(el => el.value);
+                const initials = Array.from(document.querySelectorAll(`.char_${i}_initial:checked`)).map(el => el.value);
+                const finals = Array.from(document.querySelectorAll(`.char_${i}_final:checked`)).map(el => el.value);
+                
+                if (tones.length > 0) tones.forEach(t => params.append(`char_${i}_tones`, t));
+                if (initials.length > 0) initials.forEach(init => params.append(`char_${i}_initials`, init));
+                if (finals.length > 0) finals.forEach(fin => params.append(`char_${i}_finals`, fin));
+            }
+            
+            params.append('show_traditional', document.getElementById('showTraditional').checked);
+            params.append('show_simplified', document.getElementById('showSimplified').checked);
+            params.append('show_definitions', document.getElementById('showDefinitions').checked);
+            
+            fetch('/api/search?' + params.toString())
+                .then(r => r.json())
+                .then(data => displayResults(data))
+                .catch(e => console.error(e));
+        }
+        
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '';
+            
+            if (!data.success) {
+                resultsDiv.innerHTML = '<div style="color: red;">查询出错: ' + (data.error || '未知错误') + '</div>';
+                return;
+            }
+            
+            if (data.results.length === 0) {
+                resultsDiv.innerHTML = '<div style="color: #666;">未找到匹配的词条</div>';
+                return;
+            }
+            
+            data.results.slice(0, 1000).forEach(entry => {
+                const parts = [];
+                if (data.show_traditional) parts.push(entry.traditional);
+                if (data.show_simplified) parts.push(entry.simplified);
+                parts.push('[' + entry.pinyin.join(' ') + ']');
+                if (data.show_definitions) parts.push('/' + entry.definitions + '/');
+                
+                const div = document.createElement('div');
+                div.className = 'result-item';
+                div.textContent = parts.join(' ');
+                resultsDiv.appendChild(div);
+            });
+            
+            const statsDiv = document.createElement('div');
+            statsDiv.className = 'stats';
+            statsDiv.textContent = `共找到 ${data.total} 个结果`;
+            resultsDiv.appendChild(statsDiv);
+        }
+        
+        // 页面加载时加载词典
+        window.onload = loadDict;
+    </script>
+</body>
+</html>
